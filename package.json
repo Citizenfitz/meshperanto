@@ -1,0 +1,42 @@
+{
+  "name": "meshperanto",
+  "version": "0.1.0",
+  "description": "Word-level Huffman compression codec for constrained channels like Meshtastic LoRa networks",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node build.js",
+    "test": "node --test",
+    "lint": "eslint src --ext .ts",
+    "playground": "cd playground && npm run dev"
+  },
+  "keywords": [
+    "compression",
+    "huffman",
+    "lora",
+    "meshtastic",
+    "codec"
+  ],
+  "author": "Michael Fitzgerald",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@typescript-eslint/parser": "^8.56.0",
+    "esbuild": "^0.27.3",
+    "eslint": "^10.0.1",
+    "typescript": "^5.0.0"
+  },
+  "type": "module"
+}
