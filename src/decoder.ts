@@ -2,15 +2,19 @@
 import { top1000Words } from "./dictionary";
 import { getHuffmanTables, computeCanonicalLengths } from "./huffman";
 
-const NORMAL_PREFIX = "0";
-const CAP_PREFIX = "10";
-const ALL_PREFIX = "110";
-const ESCAPE_PREFIX = "111";
+// Must match encoder.ts exactly
+const NORMAL_PREFIX = "00";
+const CAP_PREFIX = "01";
+const ALL_PREFIX = "10";
+const ESCAPE_PREFIX = "11";
+
 const LENGTH_BITS = 8;
+const WORD_COUNT_BITS = 16;
 
 function getTables() {
-  const lengths = computeCanonicalLengths(top1000Words);
-  return getHuffmanTables(top1000Words, lengths);
+  const words = Array.from(top1000Words);
+  const lengths = computeCanonicalLengths(words);
+  return getHuffmanTables(words, lengths);
 }
 
 export function decode(
@@ -35,74 +39,64 @@ export function decode(
     return bit.toString();
   };
 
-  while (bitPos < totalBits) {
-    if (totalBits - bitPos < 4) break; // padding / too few bits
+  // FIX: read 16-bit word count header written by encoder
+  let countStr = "";
+  for (let i = 0; i < WORD_COUNT_BITS; i++) countStr += getNextBit();
+  const wordCount = parseInt(countStr, 2);
 
-    const prefix = getNextBit();
+  // FIX: loop exactly wordCount times — stops before padding bits
+  while (words.length < wordCount) {
+    // FIX: read full 2-bit prefix — unambiguous, no overlap with Huffman codes
+    const p1 = getNextBit();
+    const p2 = getNextBit();
+    const prefix = p1 + p2;
 
-    if (prefix === "0") {
-      // Normal Huffman code
-      let code = "";
-      for (let i = 0; i < maxCodeLength; i++) {
-        if (bitPos >= totalBits) break;
-        code += getNextBit();
-        if (decodeTable.has(code)) {
-          words.push(decodeTable.get(code)!);
-          break;
+    if (prefix === ESCAPE_PREFIX) {
+      // Read 8-bit byte length, then raw UTF-8 bytes
+      if (bitPos + LENGTH_BITS > totalBits)
+        throw new Error("Unexpected end of buffer");
+      let lenStr = "";
+      for (let i = 0; i < LENGTH_BITS; i++) lenStr += getNextBit();
+      const len = parseInt(lenStr, 2);
+      if (bitPos + len * 8 > totalBits)
+        throw new Error("Unexpected end of buffer");
+      const utf8Bytes: number[] = [];
+      for (let i = 0; i < len; i++) {
+        let byte = 0;
+        for (let j = 0; j < 8; j++) {
+          byte = (byte << 1) | parseInt(getNextBit(), 10);
         }
+        utf8Bytes.push(byte);
       }
-    } else {
-      // Special mode: read next bits to distinguish
+      words.push(new TextDecoder().decode(new Uint8Array(utf8Bytes)));
+      continue;
+    }
+
+    // Huffman decode: read bits one at a time until we find a table match
+    let code = "";
+    let matched = false;
+    for (let i = 0; i < maxCodeLength; i++) {
       if (bitPos >= totalBits) break;
-      const nextBit = getNextBit();
-      if (nextBit === "0") {
-        // CAP = "10"
-        let code = "";
-        for (let i = 0; i < maxCodeLength; i++) {
-          if (bitPos >= totalBits) break;
-          code += getNextBit();
-          if (decodeTable.has(code)) {
-            let word = decodeTable.get(code)!;
-            word = word.charAt(0).toUpperCase() + word.slice(1);
-            words.push(word);
-            break;
-          }
+      code += getNextBit();
+      if (decodeTable.has(code)) {
+        let word = decodeTable.get(code)!;
+        if (prefix === CAP_PREFIX) {
+          word = word.charAt(0).toUpperCase() + word.slice(1);
+        } else if (prefix === ALL_PREFIX) {
+          word = word.toUpperCase();
         }
-      } else {
-        if (bitPos >= totalBits) break;
-        const nextNextBit = getNextBit();
-        if (nextNextBit === "0") {
-          // ALL = "110"
-          let code = "";
-          for (let i = 0; i < maxCodeLength; i++) {
-            if (bitPos >= totalBits) break;
-            code += getNextBit();
-            if (decodeTable.has(code)) {
-              let word = decodeTable.get(code)!;
-              word = word.toUpperCase();
-              words.push(word);
-              break;
-            }
-          }
-        } else {
-          // ESCAPE = "111" + 8-bit length + data
-          if (bitPos + LENGTH_BITS > totalBits) break;
-          let lenStr = "";
-          for (let i = 0; i < LENGTH_BITS; i++) lenStr += getNextBit();
-          const len = parseInt(lenStr, 2);
-          if (bitPos + len * 8 > totalBits) throw new Error("Unexpected end of buffer");
-          const utf8Bytes: number[] = [];
-          for (let i = 0; i < len; i++) {
-            let byte = 0;
-            for (let j = 0; j < 8; j++) {
-              byte = (byte << 1) | parseInt(getNextBit(), 2);
-            }
-            utf8Bytes.push(byte);
-          }
-          const decoded = new TextDecoder().decode(new Uint8Array(utf8Bytes));
-          words.push(decoded);
-        }
+        // NORMAL_PREFIX ("00") needs no transformation
+        words.push(word);
+        matched = true;
+        break;
       }
+    }
+
+    // FIX: loud failure instead of silent word drop
+    if (!matched) {
+      throw new Error(
+        `Huffman decode failed at bit ${bitPos} — no match after ${maxCodeLength} bits, accumulated: "${code}"`,
+      );
     }
   }
 

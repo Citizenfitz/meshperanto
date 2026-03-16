@@ -2,22 +2,21 @@
 import { top1000Words, domainCodes } from "./dictionary";
 import { getHuffmanTables, computeCanonicalLengths } from "./huffman";
 
-const NORMAL_PREFIX = "0"; // Normal Huffman code
-const CAP_PREFIX = "10"; // CAP flag + Huffman code
-const ALL_PREFIX = "110"; // ALL flag + Huffman code
-const ESCAPE_PREFIX = "111"; // Escape + 8-bit length + UTF-8
+// FIX: uniform 2-bit prefixes — no overlap with Huffman code namespace
+const NORMAL_PREFIX = "00";
+const CAP_PREFIX = "01";
+const ALL_PREFIX = "10";
+const ESCAPE_PREFIX = "11";
+
 const LENGTH_BITS = 8;
+const WORD_COUNT_BITS = 16;
 
-let tablesCache: ReturnType<typeof getHuffmanTables> | null = null;
-
+// FIX: removed redundant local tablesCache — huffman.ts caches internally
 function getTables() {
-  if (!tablesCache) {
-    const lengths = computeCanonicalLengths(top1000Words);
-    tablesCache = getHuffmanTables(top1000Words, lengths);
-  }
-  return tablesCache;
+  const words = Array.from(top1000Words);
+  const lengths = computeCanonicalLengths(words);
+  return getHuffmanTables(words, lengths);
 }
-
 export function encode(
   text: string,
   options: { language?: string } = {},
@@ -32,10 +31,16 @@ export function encode(
   const bits: string[] = [];
   const { encodeTable } = getTables();
 
+  // FIX: prepend 16-bit word count so decoder knows when to stop,
+  // preventing trailing padding bits from being decoded as words
+  const wordCountBits = originalWords.length
+    .toString(2)
+    .padStart(WORD_COUNT_BITS, "0");
+  bits.push(wordCountBits);
+
   for (let i = 0; i < lowercaseWords.length; i++) {
     const word = lowercaseWords[i];
     const original = originalWords[i];
-
     const code = encodeTable.get(word);
 
     if (code) {
@@ -48,17 +53,17 @@ export function encode(
       }
       bits.push(code);
     } else if (domainCodes[word]) {
-      // Placeholder - use same namespace when implemented
-      bits.push(NORMAL_PREFIX); // temporary
+      // Placeholder — use dedicated prefix namespace when domain codes are implemented
+      bits.push(NORMAL_PREFIX);
       bits.push(domainCodes[word]);
     } else {
+      // Escape: emit 2-bit escape prefix + 8-bit byte length + raw UTF-8
       const utf8 = new TextEncoder().encode(original);
       if (utf8.length > 255) {
         throw new Error(`OOV word exceeds 255 UTF-8 bytes: ${original}`);
       }
       const lenBin = utf8.length.toString(2).padStart(LENGTH_BITS, "0");
       bits.push(ESCAPE_PREFIX + lenBin);
-
       for (const byte of utf8) {
         bits.push(byte.toString(2).padStart(8, "0"));
       }

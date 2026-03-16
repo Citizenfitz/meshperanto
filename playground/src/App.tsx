@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { encode, decode, getCompressionStats } from "meshperanto"; // link locally or install
+import { encode, decode } from "meshperanto"; // link locally or install
 
 function App() {
   const [input, setInput] = useState("");
@@ -9,8 +9,13 @@ function App() {
   const handleEncode = () => {
     try {
       const enc = encode(input);
-      setOutput(decode(enc));
-      setStats(getCompressionStats(input));
+      const decoded = decode(enc);
+      setOutput(decoded);
+      setStats({
+        original: new TextEncoder().encode(input).length,
+        encoded: enc.length,
+        ratio: new TextEncoder().encode(input).length / enc.length,
+      });
     } catch (e) {
       setOutput(`Error: ${e}`);
     }
